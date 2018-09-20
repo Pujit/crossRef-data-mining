@@ -1,0 +1,129 @@
+# inserting in database and adding exception for table creation:
+# added the creation of log file  for every run..
+from __future__ import print_function
+import mysql.connector
+from mysql.connector import errorcode
+import pymysql
+import sys
+import configparser
+import time;
+config = configparser.ConfigParser()
+config.read('C:\\Users\\tu9419io\\config.txt')
+host     = config['Mysql Info']['host'] 
+username = config['Mysql Info']['username']
+password = config['Mysql Info']['password'] 
+database = config['Mysql Info']['database']
+
+connection = pymysql.connect(host,username,
+                             password,                             
+                             database
+                            )   
+# write the print statement in log file.
+old_stdout = sys.stdout
+log_file = open("crossref_log","w")
+sys.stdout = log_file
+
+
+#localtime = time.localtime(time.time())
+localtime = time.asctime( time.localtime(time.time()) )
+print('*******************************************')
+print("Script Start Time : {}".format(localtime))
+print('*****************************************')
+
+cur=connection.cursor()
+print ("1.connect to Database successful!!")
+try:
+    print("2.Creating table: ")
+    cur.execute("""create table crossreff (id  int(11) NOT NULL AUTO_INCREMENT
+            ,AuthorName    varchar(255)
+            ,DOI varchar(255)
+            ,url varchar(4000)
+            ,title varchar(4000)
+            ,PRIMARY KEY (`id`)
+            )""")
+except Exception as ex:
+    x, y = ex.args     # unpack error args
+    print('Code =', x)
+    print('Statement =', y)
+else:
+    print("Table created:")
+connection.commit()
+connection.close()
+
+# from here importing the crossref data 
+import json
+name=['Daniel Houlihan','DANIEL HOULIHAN','Dan Houlihan','Rachel']
+url='https://api.crossref.org/works?query.author=DANIEL+HOULIHAN+dan' 
+import urllib.request
+data = urllib.request.urlopen(url)
+result=data.read()
+result=result.decode('utf8')
+my_json = json.dumps(result)
+my_json_loaded = json.loads(result)
+
+message=(my_json_loaded['message'])
+# function to handle guffy character in title if present.
+def scrubings(items):
+    gufy_char=['“','”']
+    for i in gufy_char:
+        if i in items:
+            items = items.replace('“', '')
+            items = items.replace('”', '')
+        return(items)
+
+items = message['items']  #list
+print(' ')
+print('TOTAL ROWS retrived from JSON files: {}'.format(len(items)))
+print(' ')
+for i in range (len(items)):
+    aut_list=items[i]['author'] #author as list
+    print('----------Start of Row {}' .format(i) +'  ----------------')
+    print(aut_list)
+    aut_count=len(aut_list)
+    for j in range(aut_count):
+        aut_dic=aut_list[j]
+        if 'given' in aut_dic.keys():
+            author_name_given=aut_dic['given']
+        if 'family' in aut_dic.keys():
+            author_name_family=aut_dic['family']
+        if author_name_given==author_name_family:
+            author_name=author_name_given
+        else:
+            author_name=author_name_given +' '+ author_name_family
+        
+        print('author name in test {}'.format(author_name))
+        author_affiliation=aut_dic['affiliation']
+        #if author_name in ['Daniel Houlihan','DANIEL HOULIHAN','Dan Houlihan']:            
+        if author_name in name:            
+            print('---author name after test {}'.format(author_name))
+            
+# End author
+            doi=items[i]['DOI']
+            url=items[i]['URL']
+            title= items[i]['title']
+            title=" ".join(str(x) for x in title)
+            
+            scrubbed_title=scrubings(title)
+            print('---DOI is {}'.format(items[i]['DOI']))
+            print('---URL is {}'.format(items[i]['URL']))
+            print('---Title is {}'.format(items[i]['title']))
+            t=(author_name,doi,url,scrubbed_title)
+            connection = pymysql.connect(host,username,
+                             password,                             
+                             database
+                            )   
+            
+            cur=connection.cursor()            
+            sql= ("""INSERT INTO crossreff(AuthorName,DOI,url,title) VALUES(%s,%s,%s,%s)""" )
+            cur.execute(sql,t)
+            connection.commit()
+            connection.close()
+ 
+    print('----------end of row {}' .format(i) +'  ----------------')
+    print(' ')
+localtime = time.asctime( time.localtime(time.time()) )
+print('*******************************************')
+print("Script End Time : {}".format(localtime))
+print('******************************************')
+sys.stdout = old_stdout
+log_file.close()
